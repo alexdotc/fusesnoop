@@ -13,3 +13,5 @@ Very minimal userspace requirements because of CO-RE; libbpf is statically linke
 - [https://libbpf.readthedocs.io/en/latest/](https://libbpf.readthedocs.io/en/latest/)
 - [Opensnoop and other tool examples that ship with BCC](https://github.com/iovisor/bcc)
 - Learning eBPF book and [examples](https://github.com/lizrice/learning-ebpf)
+- [https://nakryiko.com/posts/bpf-ringbuf/](https://nakryiko.com/posts/bpf-ringbuf/)
+- [https://nakryiko.com/posts/bpf-core-reference-guide/](https://nakryiko.com/posts/bpf-core-reference-guide/)
