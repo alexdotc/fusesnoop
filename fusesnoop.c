@@ -12,6 +12,9 @@ static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va
     return vfprintf(stderr, format, args);
 }
 
+#define UID_COUNT_MAP_SIZE 8192
+static uint32_t count_by_uid[UID_COUNT_MAP_SIZE]; // jump table
+
 void write_filepath(struct fullpath *pathbuf){
     // might need to be error checked a little more carefully
     // start from the last position, which should always be the root node (fs root)
@@ -33,7 +36,11 @@ void write_filepath(struct fullpath *pathbuf){
 
 int print_event(void *ctx, void *data, size_t data_sz) {
     struct data_t *event = data;
-    printf("%-10d %-6d %-6ld %-16s", event->pid, event->uid, event->ret, event->comm);
+    uint32_t uid = event->uid;
+    uint32_t count = 0;
+    if (uid < UID_COUNT_MAP_SIZE - 1) // TODO lazy, improve error handling
+        count = ++count_by_uid[uid];
+    printf("%-10d %-6d %-6ld %-6d %-16s", event->pid, uid, event->ret, count, event->comm);
     write_filepath(&event->filename);
     return 0;
 }
@@ -67,7 +74,7 @@ int main() {
     }
 
     printf("Fusesnoop\nTrace open events on FUSE filesystems...\n");
-    printf("%-10s %-6s %-6s %-16s %s\n", "PID", "UID", "RC", "COMM", "PATH");
+    printf("%-10s %-6s %-6s %-6s %-16s %s\n", "PID", "UID", "RC", "SEQ", "COMM", "PATH");
     
     while (1) {
         err = ring_buffer__poll(ringbuf, 100);
