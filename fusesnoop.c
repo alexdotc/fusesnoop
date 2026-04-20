@@ -1,9 +1,13 @@
 #include <errno.h>
+#include <pwd.h>
 #include <stdio.h>
+#include <string.h>
 #include <unistd.h>
 #include <bpf/libbpf.h>
 #include "fusesnoop.skel.h"
 #include "shared.h"
+
+#include <signal.h>
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args) {
     if (level >= LIBBPF_DEBUG)
@@ -14,6 +18,10 @@ static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va
 
 #define UID_COUNT_MAP_SIZE 8192
 static uint32_t count_by_uid[UID_COUNT_MAP_SIZE]; // jump table
+#define MAX_USERNAME_LENGTH 33 // 32 for username + '/0'
+#define USERNAME_CACHE_SIZE UID_COUNT_MAP_SIZE * MAX_USERNAME_LENGTH
+// edge case, but technically passwd.pw_name could be empty string. Don't keep doing lookups in that case. GNU extension
+static char username_cache[USERNAME_CACHE_SIZE] = { [0 ... USERNAME_CACHE_SIZE-1] = -1 };
 
 void write_filepath(struct fullpath *pathbuf){
     // might need to be error checked a little more carefully
@@ -35,12 +43,19 @@ void write_filepath(struct fullpath *pathbuf){
 }
 
 int print_event(void *ctx, void *data, size_t data_sz) {
-    struct data_t *event = data;
+    struct data_t *const event = data;
     uint32_t uid = event->uid;
     uint32_t count = 0;
-    if (uid < UID_COUNT_MAP_SIZE - 1) // TODO lazy, improve error handling
+    char *username = "";
+    if (uid < UID_COUNT_MAP_SIZE - 1) { // TODO lazy, improve error handling
         count = ++count_by_uid[uid];
-    printf("%-10d %-6d %-6ld %-6d %-16s", event->pid, uid, event->ret, count, event->comm);
+        username = username_cache + (uid * MAX_USERNAME_LENGTH);
+        if (*username == -1) { // write cache
+            struct passwd *pwd = getpwuid((uid_t)uid);
+            username = strncpy(username, pwd->pw_name, MAX_USERNAME_LENGTH);
+        }
+    }
+    printf("%-10d %-33s %-6ld %-6d %-16s", event->pid, username, event->ret, count, event->comm); // TODO replace '33' with macro value. somehow...
     write_filepath(&event->filename);
     return 0;
 }
@@ -74,7 +89,7 @@ int main() {
     }
 
     printf("Fusesnoop\nTrace open events on FUSE filesystems...\n");
-    printf("%-10s %-6s %-6s %-6s %-16s %s\n", "PID", "UID", "RC", "SEQ", "COMM", "PATH");
+    printf("%-10s %-33s %-6s %-6s %-16s %s\n", "PID", "USERNAME", "RC", "SEQ", "COMM", "PATH"); // TODO replace '33' with macro value. somehow...
     
     while (1) {
         err = ring_buffer__poll(ringbuf, 100);
