@@ -8,7 +8,7 @@ all: $(TARGET) $(BPF_OBJ)
 .PHONY: all
 
 $(TARGET): $(USER_C) $(USER_SKEL) 
-	gcc -Wall -o $(TARGET) $(USER_C) -l:libbpf.a -lelf -lz
+	gcc -s -O2 -Wall -o $(TARGET) $(USER_C) -l:libbpf.a -lelf -lz
 
 %.bpf.o: %.bpf.c vmlinux.h
 	clang -target bpf -Wall -O2 -g -o $@ -c $<
