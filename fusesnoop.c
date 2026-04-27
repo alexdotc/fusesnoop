@@ -7,6 +7,8 @@
 #include "fusesnoop.skel.h"
 #include "shared.h"
 
+#define PAGES_PER_CPU 8
+
 #define UID_COUNT_MAP_SIZE 8192
 static uint32_t count_by_uid[UID_COUNT_MAP_SIZE]; // jump table
 #define MAX_USERNAME_LENGTH 33 // 32 for username + '/0'
@@ -40,7 +42,7 @@ void write_filepath(struct fullpath *pathbuf){
     printf("\n");
 }
 
-int print_event(void *ctx, void *data, size_t data_sz) {
+void print_event(void *ctx, int cpu, void *data, unsigned int data_sz) {
     struct data_t *const event = data;
     uint32_t const uid = event->uid;
     uint32_t count = 0;
@@ -53,15 +55,14 @@ int print_event(void *ctx, void *data, size_t data_sz) {
             username = strncpy(username, pwd->pw_name, MAX_USERNAME_LENGTH);
         }
     }
-    printf("%-10d %-33s %-6ld %-6d %-16s", event->pid, username, event->ret, count, event->comm); // TODO replace '33' with macro value. somehow...
+    printf("%-10d %-33s %-6d %-16s", event->pid, username, count, event->comm); // TODO replace '33' with macro value. somehow...
     write_filepath(&event->filename);
-    return 0;
 }
 
 int main() {
     struct fusesnoop_bpf *skel;
     int err;
-    struct ring_buffer *ringbuf = NULL;
+    struct perf_buffer *perfbuf = NULL;
 
     libbpf_set_print(libbpf_print_fn);
 
@@ -78,30 +79,30 @@ int main() {
         return 1;
     }
 
-    ringbuf = ring_buffer__new(bpf_map__fd(skel->maps.ringbuf), print_event, NULL, NULL);
-    if (!ringbuf) {
+    perfbuf = perf_buffer__new(bpf_map__fd(skel->maps.perfbuf), PAGES_PER_CPU, print_event, NULL, NULL, NULL);
+    if (!perfbuf) {
        	err = -1;
-       	fprintf(stderr, "Failed to create ring buffer\n");
+       	fprintf(stderr, "Failed to create perf buffer\n");
        	fusesnoop_bpf__destroy(skel);
         return 1;
     }
 
     printf("Fusesnoop\nTrace open events on FUSE filesystems...\n");
-    printf("%-10s %-33s %-6s %-6s %-16s %s\n", "PID", "USERNAME", "RC", "SEQ", "COMM", "PATH"); // TODO replace '33' with macro value. somehow...
+    printf("%-10s %-33s %-6s %-16s %s\n", "PID", "USERNAME", "SEQ", "COMM", "PATH"); // TODO replace '33' with macro value. somehow...
     
     while (1) {
-        err = ring_buffer__poll(ringbuf, 100);
+        err = perf_buffer__poll(perfbuf, 100);
         if (err == -EINTR) {
             err = 0;
             break;
         }
         if (err < 0) {
-            fprintf(stderr, "Error polling ring buffer: %d\n", err);
+            fprintf(stderr, "Error polling perf buffer: %d\n", err);
             break;
         }
     }
 
-    ring_buffer__free(ringbuf);
+    perf_buffer__free(perfbuf);
     fusesnoop_bpf__destroy(skel);
     return -err;
 }

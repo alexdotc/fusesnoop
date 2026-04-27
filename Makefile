@@ -11,7 +11,7 @@ $(TARGET): $(USER_C) $(USER_SKEL)
 	gcc -s -O2 -Wall -o $(TARGET) $(USER_C) -l:libbpf.a -lelf -lz
 
 %.bpf.o: %.bpf.c vmlinux.h
-	clang -target bpf -Wall -O2 -g -o $@ -c $<
+	clang -target bpf -D __TARGET_ARCH_x86 -Wall -O2 -g -o $@ -c $<
 	llvm-strip -g $@
 
 $(USER_SKEL): $(BPF_OBJ)

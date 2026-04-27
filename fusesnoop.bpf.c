@@ -4,23 +4,31 @@
 #include <bpf/bpf_core_read.h>
 #include "shared.h"
 
-#define RINGBUF_MAX_SIZE 1024 * 1024 // 1M
+struct {
+    __uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
+    __uint(key_size, sizeof(u32));
+    __uint(value_size, sizeof(u32));
+
+} perfbuf SEC(".maps");
 
 struct {
-    __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, RINGBUF_MAX_SIZE);
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, u32);
+    __type(value, struct data_t);
 
-} ringbuf SEC(".maps");
+} heap SEC(".maps");
 
-SEC("fexit/fuse_open_common")
-int BPF_PROG(fusesnoop, struct inode *inode, struct file *file, bool isdir, long ret) {
-    struct data_t *event = bpf_ringbuf_reserve(&ringbuf, sizeof(struct data_t), 0);
+SEC("kprobe/fuse_open_common")
+int BPF_KPROBE(fusesnoop, struct inode *inode, struct file *file) {
+    struct data_t *event;
+    int key_zero = 0;
+    event = bpf_map_lookup_elem(&heap, &key_zero); // weird function signature where we need to provide a pointer to a key. Hm, I guess if the keys aren't ints it makes sense
     if (!event)
         return 0;
 
     event->pid = bpf_get_current_pid_tgid() >> 32;
     event->uid = bpf_get_current_uid_gid() & 0xFFFFFFFF;
-    event->ret = ret;
     bpf_get_current_comm(&event->comm, sizeof(event->comm));
 
     // fullpath
@@ -38,7 +46,7 @@ int BPF_PROG(fusesnoop, struct inode *inode, struct file *file, bool isdir, long
         (*depth)++;
     }
 
-    bpf_ringbuf_submit(event, 0); // *dst, userspace notification flags
+    bpf_perf_event_output(ctx, &perfbuf, BPF_F_CURRENT_CPU, event, sizeof(*event));
     return 0;
 }
 
